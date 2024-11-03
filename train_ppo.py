@@ -22,7 +22,7 @@ eval_callback = EvalCallback(eval_env, best_model_save_path='./logs/best_model/'
                              deterministic=True, render=False)
 
 # Train the agent for a specified number of timesteps, using the evaluation callback
-model.learn(total_timesteps=10000, callback=eval_callback)
+model.learn(total_timesteps=500000, callback=eval_callback)
 
 # Save the final trained model
 model.save("ppo_portfolio_model")

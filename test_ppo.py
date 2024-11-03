@@ -25,7 +25,7 @@ buy_and_hold_cumulative_return = (simple_returns + 1).cumprod().dot(buy_and_hold
 obs = env.reset()  # Reset the environment
 ppo_cumulative_return = 1.0  # Starting cumulative return at 1 for the PPO strategy
 
-for i in range(1000):  # Simulate 1000 steps with the trained agent
+for i in range(10):  # Simulate 1000 steps with the trained agent
     action, _states = model.predict(obs)
 
     # Perform a step in the environment

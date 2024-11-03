@@ -28,6 +28,7 @@ class PortfolioEnv(gym.Env):
         observation = np.concatenate(([self.weights.sum()], self.simple_returns[self.current_step])).astype(np.float32)
         return observation, {}
 
+
     def step(self, action):
         # Clip and normalize weights
         weights = np.clip(action, 0, 1)
@@ -39,8 +40,11 @@ class PortfolioEnv(gym.Env):
         else:
             weights /= weight_sum  # Normalize the weights so they sum to 1
 
+        # Update the stored weights in the environment
+        self.weights = weights  # <--- This line updates the weights in the environment
+
         # Calculate the portfolio return based on the current asset simple returns
-        portfolio_return = np.dot(weights, self.simple_returns[self.current_step])
+        portfolio_return = np.dot(self.weights, self.simple_returns[self.current_step])
 
         # Update cumulative return directly
         self.cumulative_return *= (1 + portfolio_return)
@@ -72,12 +76,13 @@ class PortfolioEnv(gym.Env):
         truncated = False
 
         # Get the next state (next simple returns)
-        next_state = np.concatenate(([weights.sum()], self.simple_returns[self.current_step])).astype(
+        next_state = np.concatenate(([self.weights.sum()], self.simple_returns[self.current_step])).astype(
             np.float32) if not done else None
 
         # Return the next state, reward, and info (including portfolio return for PPO tracking)
         info = {'portfolio_return': portfolio_return, 'cumulative_return': self.cumulative_return}
         return next_state, reward, terminated, truncated, info
+
 
     def render(self, mode='human'):
         if self.render_mode == "human":

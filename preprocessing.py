@@ -1,80 +1,75 @@
-import yfinance as yf
 import pandas as pd
-from fredapi import Fred
 import numpy as np
+from fredapi import Fred
 
-# API Key for FRED (you need to sign up at https://fred.stlouisfed.org/ to get an API key)
+# Initialize FRED client
 fred = Fred(api_key='dbc938743655482a0f341e0216a5c36e')
 
-# Load the weekly stock returns from the local CSV file
-weekly_returns = pd.read_csv('weekly_stock_returns.csv', index_col='Date', parse_dates=True)
+# Fetch Federal Funds Effective Rate
+interest_rate = fred.get_series('FEDFUNDS', start_date='2004-09-01', end_date='2024-09-01')
 
-# Ensure that the weekly stock returns are aligned by forward-filling and backward-filling any missing data
-weekly_returns = weekly_returns.ffill().bfill()
+# Fetch Unemployment Rate
+unemployment_rate = fred.get_series('UNRATE', start_date='2004-09-01', end_date='2024-09-01')
 
-# Remove any timezone information
-weekly_returns.index = weekly_returns.index.tz_localize(None)
+# Convert to DataFrame
+interest_rate_df = interest_rate.to_frame(name='Interest_Rate')
+unemployment_rate_df = unemployment_rate.to_frame(name='Unemployment_Rate')
 
-# Calculate moving averages (MA) and rolling standard deviations (volatility) if not already calculated
-window_size = 4
-moving_avg = weekly_returns.rolling(window=window_size).mean()
-rolling_std = weekly_returns.rolling(window=window_size).std()
+# Load your daily stock data
+daily_stock_data = pd.read_csv('daily_stock_prices.csv', index_col='Date', parse_dates=True)
 
-# Drop NaNs in moving averages and standard deviation
-moving_avg.dropna(inplace=True)
-rolling_std.dropna(inplace=True)
-
-# Rename stock-specific columns to include stock tickers
-weekly_returns.columns = [f'{stock}_returns' for stock in weekly_returns.columns]
-moving_avg.columns = [f'{stock}_4w_ma' for stock in moving_avg.columns]
-rolling_std.columns = [f'{stock}_4w_vol' for stock in rolling_std.columns]
-
-# Collect macroeconomic data from FRED
-cpi_data = fred.get_series('CPIAUCSL', observation_start='2004-09-01', observation_end='2024-09-01').resample('W-MON').ffill()
-interest_rate = fred.get_series('FEDFUNDS', observation_start='2004-09-01', observation_end='2024-09-01').resample('W-MON').ffill()
-unemployment_rate = fred.get_series('UNRATE', observation_start='2004-09-01', observation_end='2024-09-01').resample('W-MON').ffill()
-
-# Download the VIX index (market volatility) using yfinance
-vix = yf.download('^VIX', start="2004-09-01", end="2024-09-01", interval='1wk')['Adj Close']
-vix = vix.ffill().bfill()
-
-# Combine all macroeconomic indicators into one DataFrame
-macro_data = pd.DataFrame({
-    'CPI': cpi_data,
-    'FedFundsRate': interest_rate,
-    'UnemploymentRate': unemployment_rate,
-    'VIX': vix
-})
-
-# Forward-fill and backward-fill missing values in the macro data
-macro_data = macro_data.ffill().bfill()
-
-# Align all DataFrames by index (ensure they have the same index)
-common_index = weekly_returns.index.intersection(macro_data.index)
-
-# Reindex all DataFrames to ensure alignment
-weekly_returns = weekly_returns.reindex(common_index)
-moving_avg = moving_avg.reindex(common_index)
-rolling_std = rolling_std.reindex(common_index)
-macro_data = macro_data.reindex(common_index)
-
-# Now get the correct number of stocks
-num_stocks = len(weekly_returns.columns)  # Number of stocks
-
-# Stack stock-specific features together into a 3D array (time_steps, num_stocks, num_features_per_stock)
-stock_features = np.stack([weekly_returns.values, moving_avg.values, rolling_std.values], axis=-1)
-
-# Now, macroeconomic data has to be repeated across each stock for each time step
-macro_data_repeated = np.repeat(macro_data.values[:, np.newaxis, :], num_stocks, axis=1)
-
-# Combine stock-specific features with macroeconomic indicators
-# Concatenating along the last axis to ensure macro data is treated as additional features
-combined_data = np.concatenate([stock_features, macro_data_repeated], axis=-1)
-
-# The shape should now be (time_steps, num_stocks, features_per_stock + macro_indicators)
-print(combined_data.shape)
-
-# Optionally save the final reshaped data to a CSV or .npy file if needed
-np.save('final_stock_and_macro_data.npy', combined_data)
+# Step 1: Calculate Adjusted Log Return
+# Adjusted log return: log of today's close price over yesterday's close price
+log_returns = np.log(daily_stock_data / daily_stock_data.shift(1))
+log_returns.columns = [f"{col}_Log_Return" for col in log_returns.columns]
 
 
+# Step 2: Calculate Daily RSI (14-day)
+def calculate_rsi(series, window=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+
+rsi_data = daily_stock_data.apply(lambda x: calculate_rsi(x), axis=0)
+rsi_data.columns = [f"{col}_RSI" for col in rsi_data.columns]
+
+# Step 3: Calculate Moving Averages on Daily Data
+ma_20 = daily_stock_data.rolling(window=20).mean().add_suffix('_20d_MA')
+ma_60 = daily_stock_data.rolling(window=60).mean().add_suffix('_60d_MA')
+
+# Step 4: Add Interest Rate and Unemployment Rate (Daily Frequency or Resampled to Match if Available)
+# Placeholder data (replace with actual interest rate and unemployment rate data if available)
+date_range = daily_stock_data.index
+interest_rate = pd.DataFrame(0.05, index=date_range, columns=['Interest_Rate'])  # Example 5%
+unemployment_rate = pd.DataFrame(0.04, index=date_range, columns=['Unemployment_Rate'])  # Example 4%
+
+preprocessed_daily_data = pd.concat([daily_stock_data.add_suffix('_Price'),
+                                     log_returns,
+                                     rsi_data,
+                                     ma_20,
+                                     ma_60,
+                                     interest_rate,
+                                     unemployment_rate], axis=1)
+
+# Drop any rows with NaN values from rolling calculations
+preprocessed_daily_data.dropna(inplace=True)
+
+# Step 5: Select Weekly Reallocation Days (e.g., Every Friday)
+# Create a mask for selecting Fridays
+weekly_reallocation_days = preprocessed_daily_data.index.weekday == 4  # Friday is weekday 4
+
+# Filter Data for Weekly Reallocation
+weekly_data_for_reallocation = preprocessed_daily_data[weekly_reallocation_days]
+
+# Save both full daily data and weekly reallocation points
+preprocessed_daily_data.to_csv('preprocessed_daily_stock_data.csv')
+weekly_data_for_reallocation.to_csv('weekly_reallocation_points.csv')
+
+# Display the first few rows to confirm structure
+print("Daily Data Preview:")
+print(preprocessed_daily_data.head())
+print("\nWeekly Reallocation Points Preview:")
+print(weekly_data_for_reallocation.head())

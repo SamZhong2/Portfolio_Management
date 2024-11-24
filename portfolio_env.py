@@ -1,89 +1,92 @@
-import gymnasium as gym  # Use gymnasium instead of gym
+import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
+import pandas as pd
 
 
 class PortfolioEnv(gym.Env):
-    def __init__(self, simple_returns, render_mode=None):
+    def __init__(self, data: pd.DataFrame):
         super(PortfolioEnv, self).__init__()
-        self.num_assets = simple_returns.shape[1]
-        self.simple_returns = simple_returns.values  # Use simple returns
-        self.n_steps = self.simple_returns.shape[0]
-        self.action_space = spaces.Box(low=0, high=1, shape=(self.num_assets,), dtype=np.float32)
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.num_assets + 1,), dtype=np.float32)
-        self.weights = np.array([1.0 / self.num_assets] * self.num_assets)
-        self.current_step = 0
-        self.cumulative_return = 1  # Track cumulative returns directly now
-        self.returns_history = []
-        self.peak_value = 1  # Track peak portfolio value for drawdown calculation
-        self.render_mode = render_mode  # Add render mode
+
+        # Assets in portfolio
+        self.previous_portfolio_value = None
+        self.current_portfolio = None
+        self.current_step = None
+        self.data = data
+        self.initial_cash = 1000
+        self.cash = self.initial_cash
+
+        # Extract feature columns
+        self.price_columns = [col for col in data.columns if '_Price' in col]
+        self.num_assets = len(self.price_columns)
+        self.feature_columns = [col for col in data.columns if col != 'Date']
+
+        # Action space is reallocation of num_assets + 1 accounting for cash, and they add to 1.
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=(self.num_assets + 1,), dtype=np.float32
+        )
+
+        # Not sure yet, include many things
+        self.observation_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(len(self.feature_columns),), dtype=np.float32
+        )
+
+        # Initialize environment state
+        self.shares_held = np.zeros(self.num_assets)
 
     def reset(self, seed=None, options=None):
-        super().reset(seed=seed)
-        self.weights = np.array([1.0 / self.num_assets] * self.num_assets, dtype=np.float32)
+        # Reset environment
         self.current_step = 0
-        self.cumulative_return = 1  # Reset cumulative return to 1
-        self.returns_history = []
-        self.peak_value = 1
-        observation = np.concatenate(([self.weights.sum()], self.simple_returns[self.current_step])).astype(np.float32)
-        return observation, {}
+        self.current_portfolio = np.zeros(self.num_assets + 1)
+        self.current_portfolio[-1] = 1.0  # Start fully in cash
+        self.previous_portfolio_value = self.initial_cash
+        return self._get_observation(), {}
 
+    def _get_observation(self):
+        # Get feature data for the current timestep
+        current_features = self.data.iloc[self.current_step][self.feature_columns].values.astype(np.float32)
+        return current_features
+
+    def _compute_reward(self):
+        # Get current prices
+        current_prices = self.data.iloc[self.current_step][self.price_columns].values
+
+        # Calculate portfolio value: shares * prices + cash
+        portfolio_value = np.sum(self.shares_held * current_prices) + self.cash
+
+        # Reward: Relative change in portfolio value
+        reward = (portfolio_value - self.previous_portfolio_value)
+
+        self.previous_portfolio_value = portfolio_value
+        return reward
 
     def step(self, action):
-        # Clip and normalize weights
-        weights = np.clip(action, 0, 1)
-        weight_sum = np.sum(weights)
+        # Map actions from [-1, 1] to [0, 1]
+        action = (action + 1) / 2  # Scale from [-1, 1] to [0, 1]
 
-        # If weights sum to zero (which can happen if the agent chooses all zeros), we set equal weights
-        if weight_sum == 0:
-            weights = np.array([1.0 / self.num_assets] * self.num_assets, dtype=np.float32)
-        else:
-            weights /= weight_sum  # Normalize the weights so they sum to 1
+        # Normalize to ensure actions sum to 1
+        action = np.clip(action, 0, 1)
+        total = np.sum(action)
+        if not np.isclose(total, 1.0):
+            # Normalize action if it doesn't sum to 1 (for compatibility with check_env)
+            action = action / total
 
-        # Update the stored weights in the environment
-        self.weights = weights  # <--- This line updates the weights in the environment
+        # Get current prices
+        current_prices = self.data.iloc[self.current_step][self.price_columns].values
 
-        # Calculate the portfolio return based on the current asset simple returns
-        portfolio_return = np.dot(self.weights, self.simple_returns[self.current_step])
+        # Update shares held based on the action
+        target_allocation = action[:-1] * (self.cash + np.sum(self.shares_held * current_prices))
+        self.cash = action[-1] * (self.cash + np.sum(self.shares_held * current_prices))
 
-        # Update cumulative return directly
-        self.cumulative_return *= (1 + portfolio_return)
+        for i in range(self.num_assets):
+            self.shares_held[i] = target_allocation[i] / current_prices[i]
 
-        # Add this step's portfolio return to the returns history for Sharpe ratio calculation
-        self.returns_history.append(portfolio_return)
-
-        # Update the peak value for drawdown calculation
-        self.peak_value = max(self.peak_value, self.cumulative_return)
-
-        # Calculate drawdown
-        drawdown = (self.peak_value - self.cumulative_return) / self.peak_value if self.peak_value > 0 else 0
-
-        # Increment the current step
+        # Advance to the next timestep
         self.current_step += 1
-        done = self.current_step >= self.n_steps  # Check if the episode is over
+        terminated = self.current_step >= len(self.data) - 1
+        truncated = False  # Define a truncation condition if applicable (e.g., max steps)
 
-        # Calculate reward based on Sharpe ratio adjusted for drawdown
-        if len(self.returns_history) > 1:
-            mean_return = np.mean(self.returns_history)
-            volatility = np.std(self.returns_history)
-            sharpe_ratio = mean_return / volatility if volatility > 0 else 0
-            reward = sharpe_ratio - drawdown  # Penalize drawdown
-        else:
-            reward = portfolio_return  # Use portfolio return as the reward for the first step
+        # Compute reward
+        reward = self._compute_reward()
 
-        # Define termination and truncation flags
-        terminated = done
-        truncated = False
-
-        # Get the next state (next simple returns)
-        next_state = np.concatenate(([self.weights.sum()], self.simple_returns[self.current_step])).astype(
-            np.float32) if not done else None
-
-        # Return the next state, reward, and info (including portfolio return for PPO tracking)
-        info = {'portfolio_return': portfolio_return, 'cumulative_return': self.cumulative_return}
-        return next_state, reward, terminated, truncated, info
-
-
-    def render(self, mode='human'):
-        if self.render_mode == "human":
-            print(f"Step: {self.current_step}, Portfolio Weights: {self.weights}, Cumulative Return: {self.cumulative_return}, Drawdown: {self.peak_value - self.cumulative_return}")
+        return self._get_observation(), reward, terminated, truncated, {}

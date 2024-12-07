@@ -2,10 +2,10 @@ import yfinance as yf
 import pandas as pd
 
 # List of 10 diversified tickers from different sectors
-tickers = ['AAPL', 'MSFT', 'NVDA', 'INTC', 'AXP']
+tickers = ['AAPL', 'JPM', 'MSFT']
 
 # Download historical daily data for these tickers
-data = yf.download(tickers, start="2004-09-01", end="2024-09-01", interval="1d")
+data = yf.download(tickers, start="1990-09-01", end="2024-09-01", interval="1d")
 
 # Extract the adjusted close prices and volume
 adj_close = data['Adj Close']

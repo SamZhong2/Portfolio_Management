@@ -8,97 +8,118 @@ class PortfolioEnv(gym.Env):
     def __init__(self, data: pd.DataFrame):
         super(PortfolioEnv, self).__init__()
 
-        # Assets in portfolio
-        self.previous_portfolio_value = None
-        self.current_portfolio = None
-        self.current_step = None
         self.data = data
-        self.initial_cash = 1
-        self.cash = self.initial_cash
-        self.returns = []
 
-        # Extract feature columns
+        # Get the amount of assets
         self.price_columns = [col for col in data.columns if '_Price' in col]
         self.num_assets = len(self.price_columns)
-        self.feature_columns = [col for col in data.columns if col != 'Date']
-
-        # Action space is reallocation of num_assets + 1 accounting for cash, and they add to 1.
-        self.action_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(self.num_assets + 1,), dtype=np.float32
-        )
-
-        # Not sure yet, include many things
-        self.observation_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(len(self.feature_columns),), dtype=np.float32
-        )
-
-        # Initialize environment state
-        self.shares_held = np.zeros(self.num_assets)
-
-    def reset(self, seed=None, options=None):
-        # Reset environment
-        self.current_step = 0
-        self.current_portfolio = np.zeros(self.num_assets + 1)
-        self.current_portfolio[-1] = 1.0  # Start fully in cash
-        self.previous_portfolio_value = self.initial_cash
-        return self._get_observation(), {}
-
-    def _get_observation(self):
-        # Get feature data for the current timestep
-        current_features = self.data.iloc[self.current_step][self.feature_columns].values.astype(np.float32)
-        return current_features
-
-    def _compute_reward(self):
-        # Get current prices
-        current_prices = self.data.iloc[self.current_step][self.price_columns].values
-
-        # Calculate portfolio value
-        portfolio_value = np.sum(self.shares_held * current_prices) + self.cash
-
-        # Calculate return for the current step
-        portfolio_return = (portfolio_value - self.previous_portfolio_value) / self.previous_portfolio_value
-
-        # Smooth returns using EWMA
-        alpha = 0.1  # Adjust for sensitivity
-        if len(self.returns) > 0:
-            smoothed_return = alpha * portfolio_return + (1 - alpha) * self.returns[-1]
-        else:
-            smoothed_return = portfolio_return
-
-        self.returns.append(smoothed_return)
-        self.previous_portfolio_value = portfolio_value
         
-        # Reward is the smoothed return
-        return smoothed_return
+        # Action space is continuous with possible allocation from 0 to 1 for each asset and cash
+        self.action_space = spaces.Box(low=-1, high=1, shape=(self.num_assets + 1,))
+
+        # Oberservatoin space is the everything except the raw price of the stock for the past 30 days
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(30 * (len(self.data.columns) - self.num_assets - 1),), dtype=np.float64)
+
+        # Initialize the state of the portfolio
+        self.portfolio = np.zeros(self.num_assets + 1)
+
+        # Initialize the risk-free rate for sharpe ratio calculation
+        self.risk_free_rate = 0.01 / 252
+
+        # Initialize the window size for the past 30 days
+        self.window_size = 30
+
+        # Initialize the horizon for the episode
+        self.horizon = 200 
+        
+        # Initialize the current step
+        self.current_step = 0
+
+        # Initialize the daily returns for the entire horizon
+        self.daily_returns = []
+
+        # # Initialize the portfolio value
+        # self.portfolio_value = 1000
+
+        # Initialize the maximum number of steps
+        self.max_steps = 500
+        
+    # Gets the random day we are training for and the data for the past 30 days
+    def _get_random_window(self):
+        # 1. Randomly select a start index ensuring enough data for the window and horizon
+        start_idx = np.random.randint(self.window_size, len(self.data) - self.horizon)
+        
+        # 2. Exclude the first column (date) and any price columns
+        # Assume price columns are identified by '_Price' suffix
+        all_columns = self.data.columns[1:]  # Exclude the first column
+        non_price_features = [col for col in all_columns if not col.endswith('_Price')]
+        
+        observation = self.data[non_price_features].iloc[start_idx - self.window_size : start_idx].values
+        
+        # 3. Return the filtered observation and start index
+        return observation.flatten(), start_idx
 
 
     def step(self, action):
-        # Map actions from [-1, 1] to [0, 1]
-        action = (action + 1) / 2  # Scale from [-1, 1] to [0, 1]
+        # 1. Get the next observation window
+        observation, start_idx = self._get_random_window()  # Random 30-day window ending at `start_idx`
 
-        # Normalize to ensure actions sum to 1
-        action = np.clip(action, 0, 1)
-        total = np.sum(action)
-        if not np.isclose(total, 1.0):
-            # Normalize action if it doesn't sum to 1 (for compatibility with check_env)
-            action = action / total
+        # 2. Parse and normalize the action (portfolio allocation)
+        action = (action + 1) / 2  # Rescale to [0, 1]
+        action = np.clip(action, 0, 1)  # Ensure valid weights
+        action_sum = np.sum(action) + 1e-8  # Avoid division by zero
+        action = action / action_sum  # Normalize to sum to 1
 
-        # Get current prices
-        current_prices = self.data.iloc[self.current_step][self.price_columns].values
+        asset_weights = action[:-1]  # First `self.num_assets` elements
+        cash_weight = action[-1]    # Last element for cash allocation
 
-        # Update shares held based on the action
-        target_allocation = action[:-1] * (self.cash + np.sum(self.shares_held * current_prices))
-        self.cash = action[-1] * (self.cash + np.sum(self.shares_held * current_prices))
 
-        for i in range(self.num_assets):
-            self.shares_held[i] = target_allocation[i] / current_prices[i]
+        # 3. Simulate returns over the next 200 days
+        end_idx = min(start_idx + self.horizon, len(self.data))  # Ensure we don't exceed dataset length
+        return_columns = [col for col in self.data.columns if col.endswith('_Return')]
+        future_returns = self.data[return_columns].iloc[start_idx:end_idx].values
+        
 
-        # Advance to the next timestep
+        
+        # 4. Compute portfolio performance over the next 200 days
+        # Matrix multiplication: future_returns.dot(action) gives daily portfolio returns
+        asset_returns = np.dot(future_returns, asset_weights)  # Weighted sum of asset returns
+        # Include cash return
+        portfolio_returns = asset_returns + (cash_weight * self.risk_free_rate)
+        
+        # Cumulative return over 200 days
+        cumulative_return = np.prod(1 + portfolio_returns) - 1
+        
+        # Sharpe ratio over 200 days
+        mean_return = np.mean(portfolio_returns)
+        std_dev = np.std(portfolio_returns)
+        sharpe_ratio = (mean_return - self.risk_free_rate) / std_dev if std_dev != 0 else 0
+
+        # Reward: Combine cumulative return and Sharpe Ratio
+        reward = cumulative_return + sharpe_ratio  # Adjust weights as needed
+        
+        # 5. Increment the step counter and check if the episode is done
         self.current_step += 1
-        terminated = self.current_step >= len(self.data) - 1
-        truncated = False  # Define a truncation condition if applicable (e.g., max steps)
+        terminated = self.current_step >= self.max_steps  # True if max steps reached
+        truncated = False  # Define conditions for truncation if applicable (e.g., timeout)
 
-        # Compute reward
-        reward = self._compute_reward()
+        # 6. Return observation, reward, done, and additional info
+        return observation, reward, terminated, truncated, {
+            'cumulative_return': cumulative_return,
+            'sharpe_ratio': sharpe_ratio,
+            # 'portfolio_value': self.portfolio_value,
+        }
 
-        return self._get_observation(), reward, terminated, truncated, {}
+
+
+    def reset(self, seed=None, options=None):
+        self.current_step = 0
+        # self.portfolio_value = 1000
+        observation, _ = self._get_random_window()  # Random initial window
+        return observation, {}
+
+
+       
+
+
+   

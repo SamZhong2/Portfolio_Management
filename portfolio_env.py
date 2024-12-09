@@ -59,7 +59,6 @@ class PortfolioEnv(gym.Env):
         # 3. Return the filtered observation and start index
         return observation.flatten(), start_idx
 
-
     def step(self, action):
         # 1. Get the next observation window
         observation, start_idx = self._get_random_window()  # Random 30-day window ending at `start_idx`
@@ -81,22 +80,49 @@ class PortfolioEnv(gym.Env):
         
 
         
+        # # 4. Compute portfolio performance over the next 200 days
+        # # Matrix multiplication: future_returns.dot(action) gives daily portfolio returns
+        # asset_returns = np.dot(future_returns, asset_weights)  # Weighted sum of asset returns
+        # # Include cash return
+        # portfolio_returns = asset_returns + (cash_weight * self.risk_free_rate)
+
+        
+        # # Cumulative return over 200 days
+        # cumulative_return = np.prod(1 + portfolio_returns) - 1
+        
+        # # Sharpe ratio over 200 days (annualized)
+        # mean_return = np.mean(portfolio_returns)
+        # std_dev = np.std(portfolio_returns)
+        # scaling_factor = np.sqrt(252 / self.horizon)  # Annualization factor for horizon of 200 days
+        # sharpe_ratio_annualized = (mean_return * scaling_factor) / (std_dev + 1e-8) if std_dev != 0 else 0
+
+        
+
         # 4. Compute portfolio performance over the next 200 days
-        # Matrix multiplication: future_returns.dot(action) gives daily portfolio returns
-        asset_returns = np.dot(future_returns, asset_weights)  # Weighted sum of asset returns
-        # Include cash return
+        # Weighted sum of future returns for assets
+        asset_returns = np.dot(future_returns, asset_weights)
+
+        # Daily portfolio returns, including cash
         portfolio_returns = asset_returns + (cash_weight * self.risk_free_rate)
+
+        # portfolio_returns = np.round(portfolio_returns, 4)
+
+        # Expected portfolio return (annualized) using simple returns
+        mean_daily_portfolio_return = np.mean(portfolio_returns)
+        mean_return_annualized = (1 + mean_daily_portfolio_return)**252 - 1
+
+        # Portfolio standard deviation (annualized) (excluding cash contribution to volatility)
+        volatility_annualized = np.sqrt(np.dot(asset_weights.T, np.dot(np.cov(future_returns.T) * 252, asset_weights)))
+
+        # Sharpe ratio (annualized)
+        sharpe_ratio_annualized = (mean_return_annualized - self.risk_free_rate * 252) / (volatility_annualized + 1e-8) if volatility_annualized > 0 else 0
+
         
-        # Cumulative return over 200 days
+        # Cumulative return over the 200-day horizon
         cumulative_return = np.prod(1 + portfolio_returns) - 1
-        
-        # Sharpe ratio over 200 days
-        mean_return = np.mean(portfolio_returns)
-        std_dev = np.std(portfolio_returns)
-        sharpe_ratio = (mean_return - self.risk_free_rate) / std_dev if std_dev != 0 else 0
 
         # Reward: Combine cumulative return and Sharpe Ratio
-        reward = cumulative_return + sharpe_ratio  # Adjust weights as needed
+        reward = cumulative_return + 5 * sharpe_ratio_annualized  # Adjust weights as needed
         
         # 5. Increment the step counter and check if the episode is done
         self.current_step += 1
@@ -106,7 +132,7 @@ class PortfolioEnv(gym.Env):
         # 6. Return observation, reward, done, and additional info
         return observation, reward, terminated, truncated, {
             'cumulative_return': cumulative_return,
-            'sharpe_ratio': sharpe_ratio,
+            'sharpe_ratio': sharpe_ratio_annualized,
             # 'portfolio_value': self.portfolio_value,
         }
 

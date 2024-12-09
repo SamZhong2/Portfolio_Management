@@ -15,11 +15,11 @@ test_data = data
 test_env = PortfolioEnv(test_data)
 
 # Load the trained model
-model_path = "models/1733702606/model_148000.zip"  # Update this with the actual path
+model_path = "models/1733754366/model_2257000.zip"  # Update this with the actual path
 model = PPO.load(model_path)
 
 # Select a specific date to test
-specific_date = "1995-02-06"  # Replace with your desired date
+specific_date = "2001-01-02"  # Replace with your desired date
 specific_idx = test_data.index[test_data['Date'] == specific_date].tolist()
 
 if not specific_idx:

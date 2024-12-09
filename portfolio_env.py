@@ -30,7 +30,7 @@ class PortfolioEnv(gym.Env):
         self.window_size = 30
 
         # Initialize the horizon for the episode
-        self.horizon = 200 
+        self.horizon = 252
         
         # Initialize the current step
         self.current_step = 0

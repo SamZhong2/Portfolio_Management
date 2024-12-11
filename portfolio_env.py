@@ -13,21 +13,21 @@ class PortfolioEnv(gym.Env):
         # Get the amount of assets
         self.price_columns = [col for col in data.columns if '_Price' in col]
         self.num_assets = len(self.price_columns)
+
+        # Initialize the window size for the past 30 days
+        self.window_size = int(252/4)
         
         # Action space is continuous with possible allocation from 0 to 1 for each asset and cash
         self.action_space = spaces.Box(low=-1, high=1, shape=(self.num_assets + 1,))
 
         # Oberservatoin space is the everything except the raw price of the stock for the past 30 days
-        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(30 * (len(self.data.columns) - self.num_assets - 1),), dtype=np.float64)
+        self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.window_size * (len(self.data.columns) - self.num_assets - 1),), dtype=np.float64)
 
         # Initialize the state of the portfolio
         self.portfolio = np.zeros(self.num_assets + 1)
 
         # Initialize the risk-free rate for sharpe ratio calculation
         self.risk_free_rate = 0.01 / 252
-
-        # Initialize the window size for the past 30 days
-        self.window_size = 30
 
         # Initialize the horizon for the episode
         self.horizon = 252

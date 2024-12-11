@@ -1,5 +1,5 @@
 # Test some parameters for the PPO model, no hyperparameter tuning
-# 1. Test 252/3 days behind the current date with horizon of 252
+# 1. Test 252/4 days behind the current date with horizon of 252
 # 2. Test 252/4 days behind the current date with horizon of 252/4
 # 3. Test 252/12 days behind the current date with horizon of 252/4
 
@@ -12,8 +12,8 @@ from stable_baselines3 import PPO
 from torch.utils.tensorboard import SummaryWriter
 
 # Setup directories
-models_dir = f"models/{int(time.time())}"
-logdir = f"logs/{int(time.time())}/"
+models_dir = f"models/month-quarter"
+logdir = f"logs/month-quarter/"
 
 os.makedirs(models_dir, exist_ok=True)
 os.makedirs(logdir, exist_ok=True)
@@ -39,6 +39,7 @@ best_reward = -float('inf')
 best_model_path = None
 patience = 10
 no_improve_count = 0
+previous_model_path = None
 
 def evaluate_model(env, model):
     obs, _ = env.reset()

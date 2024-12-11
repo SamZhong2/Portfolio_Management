@@ -19,11 +19,11 @@ print(test_data['Date'][0])
 test_env = PortfolioEnv(test_data)
 
 # Load the trained model
-model_path = "models/1733857742/best_model.zip"  # Update this with the actual path
+model_path = "models/quarter-year/best_model.zip"  # Update this with the actual path
 model = PPO.load(model_path)
 
 # Select a specific date to test
-specific_date = "2018-01-08"  # Replace with your desired date
+specific_date = "2023-01-04"  # Replace with your desired date
 specific_idx = test_data.index[test_data['Date'] == specific_date].tolist()
 
 if not specific_idx:
@@ -38,6 +38,10 @@ if specific_idx < test_env.window_size or specific_idx + test_env.horizon >= len
 # Prepare the observation (previous 30 days)
 non_price_features = [col for col in test_data.columns[1:] if not col.endswith('_Price')]
 observation = test_data[non_price_features].iloc[specific_idx - test_env.window_size : specific_idx].values.flatten()
+print(specific_idx - test_env.window_size)
+print(specific_idx)
+print(observation.shape)
+
 # Normalize observations (min-max scaling)
 obs_min = np.min(observation, axis=0)
 obs_max = np.max(observation, axis=0)
@@ -45,13 +49,9 @@ normalized_obs = (observation - obs_min) / (obs_max - obs_min + 1e-8)
 
 # Get model's predicted allocation
 action, _ = model.predict(normalized_obs)
-print(f"Raw Action: {action}")
 action = (action + 1) / 2  # Rescale to [0, 1]
-print(f"Rescaled Action: {action}")
 action = np.clip(action, 0, 1)
-print(f"Clipped Action: {action}")
 action /= np.sum(action)  # Normalize to sum to 1
-print(f"Normalized Action: {action}")
 model_allocation = action
 
 # Calculate equal weight allocation

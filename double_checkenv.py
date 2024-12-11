@@ -5,7 +5,7 @@ import numpy as np
 data = pd.read_csv('preprocessed_stock_data.csv')
 
 env = PortfolioEnv(data)
-eps = 1
+eps = 10
 
 for eps in range(eps):
     terminated = False
@@ -16,8 +16,9 @@ for eps in range(eps):
         action = np.clip(action, 0, 1)  # Ensure valid weights
         action_sum = np.sum(action) + 1e-8  # Avoid division by zero
         action = action / action_sum  # Normalize to sum to 1
-        print("action: ", action)
-        obs, reward, terminated, truncated, _ = env.step(action)
-        print("reward: ", reward)
+
+        obs, reward, terminated, truncated, info = env.step(action)
+
+    print("info: ", info)
 
 

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import torch
 
 # Load the data
-data = pd.read_csv('preprocessed_stock_data.csv')
+data = pd.read_csv('test_preprocessed_stock_data.csv')
 
 # Load the trained model
 model_path = "models/quarter-year/best_model.zip"  # Update this with the actual path
@@ -26,12 +26,8 @@ for year in years:
     # Filter data for the specific year
     year_data = data[data['Year'] == year].reset_index(drop=True)
 
-    # Skip years with insufficient data
-    if len(year_data) < 30:  # Assuming a 30-day observation window
-        continue
-
     # Prepare the observation on the first day of the year
-    test_env = PortfolioEnv(year_data)
+    test_env = PortfolioEnv(year_data,  window_size=63, horizon=252, max_steps=500)
     non_price_features = [col for col in year_data.columns[1:-1] if not col.endswith('_Price')]
     observation = year_data[non_price_features].iloc[:test_env.window_size].values.flatten()
 
@@ -75,7 +71,7 @@ for year in years:
 # Convert to DataFrame
 annual_results_df = pd.DataFrame(annual_results)
 
-def smooth_data(values, window_size=1):
+def smooth_data(values, window_size=2):
      return pd.Series(values).rolling(window=window_size, min_periods=1).mean()
 
 annual_results_df['Smoothed Model Return'] = smooth_data(annual_results_df['Model Return'])

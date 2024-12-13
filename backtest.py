@@ -1,4 +1,3 @@
-# Backtesting Script for a Specific Date
 import pandas as pd
 import numpy as np
 from portfolio_env import PortfolioEnv
@@ -7,23 +6,21 @@ import matplotlib.pyplot as plt
 import torch
 
 # Load the test data
-data = pd.read_csv('preprocessed_stock_data.csv')
-train_size = int(len(data) * 0.7)  # Use the last 20% for testing
-# test_data = data.iloc[train_size:].reset_index(drop=True)
+data = pd.read_csv('trainData/preprocessed_stock_data.csv')
 test_data = data
 
-#print the date at the first value of the test data
-print(test_data['Date'][0])
+# Print the first date in the test data
+print("First Date in Test Data:", test_data['Date'][0])
 
 # Create the test environment
-test_env = PortfolioEnv(test_data)
+test_env = PortfolioEnv(test_data, window_size=63, horizon=252, max_steps=500)
 
 # Load the trained model
 model_path = "models/quarter-year/best_model.zip"  # Update this with the actual path
 model = PPO.load(model_path)
 
 # Select a specific date to test
-specific_date = "2023-01-04"  # Replace with your desired date
+specific_date = "2022-01-04"  # Replace with your desired date
 specific_idx = test_data.index[test_data['Date'] == specific_date].tolist()
 
 if not specific_idx:
@@ -35,12 +32,9 @@ specific_idx = specific_idx[0]
 if specific_idx < test_env.window_size or specific_idx + test_env.horizon >= len(test_data):
     raise ValueError(f"Not enough data around the date {specific_date} for testing!")
 
-# Prepare the observation (previous 30 days)
+# Prepare the observation (previous 63 days)
 non_price_features = [col for col in test_data.columns[1:] if not col.endswith('_Price')]
 observation = test_data[non_price_features].iloc[specific_idx - test_env.window_size : specific_idx].values.flatten()
-print(specific_idx - test_env.window_size)
-print(specific_idx)
-print(observation.shape)
 
 # Normalize observations (min-max scaling)
 obs_min = np.min(observation, axis=0)
@@ -58,7 +52,7 @@ model_allocation = action
 num_assets = test_env.num_assets
 equal_weights = np.ones(num_assets + 1) / (num_assets + 1)
 
-# Simulate returns over the next 200 days
+# Simulate returns over the next 252 days
 future_returns = test_data[[col for col in test_data.columns if col.endswith('_Return')]].iloc[
     specific_idx : specific_idx + test_env.horizon
 ].values
@@ -74,40 +68,45 @@ equal_weight_cumulative_return = np.prod(1 + equal_weight_portfolio_returns) - 1
 # Calculate Sharpe ratios (annualized)
 model_mean_return = np.mean(model_portfolio_returns) * 252
 model_volatility = np.std(model_portfolio_returns) * np.sqrt(252)
-model_sharpe_ratio = (model_mean_return) / (model_volatility + 1e-8)
+model_sharpe_ratio = model_mean_return / (model_volatility + 1e-8)
 
 equal_weight_mean_return = np.mean(equal_weight_portfolio_returns) * 252
 equal_weight_volatility = np.std(equal_weight_portfolio_returns) * np.sqrt(252)
-equal_weight_sharpe_ratio = (equal_weight_mean_return) / (equal_weight_volatility + 1e-8)
+equal_weight_sharpe_ratio = equal_weight_mean_return / (equal_weight_volatility + 1e-8)
 
-######
-### No cash
+# Equal weight strategy excluding cash
+equal_weights_no_cash = np.ones(test_env.num_assets) / test_env.num_assets
 
-# Calculate equal weight allocation excluding cash
-equal_weights_no_cash = np.ones(test_env.num_assets) / test_env.num_assets  # Equal allocation among assets only
 equal_weight_portfolio_returns_no_cash = np.dot(future_returns, equal_weights_no_cash)
 
-# Calculate cumulative returns for equal weight strategy with no cash
+# Cumulative returns for equal weight strategy with no cash
 equal_weight_cumulative_return_no_cash = np.prod(1 + equal_weight_portfolio_returns_no_cash) - 1
 
-# Calculate Sharpe ratio for equal weight strategy with no cash
+# Sharpe ratio for equal weight strategy with no cash
 equal_weight_mean_return_no_cash = np.mean(equal_weight_portfolio_returns_no_cash) * 252
 equal_weight_volatility_no_cash = np.std(equal_weight_portfolio_returns_no_cash) * np.sqrt(252)
-equal_weight_sharpe_ratio_no_cash = (equal_weight_mean_return_no_cash) / (equal_weight_volatility_no_cash + 1e-8)
+equal_weight_sharpe_ratio_no_cash = equal_weight_mean_return_no_cash / (equal_weight_volatility_no_cash + 1e-8)
 
 # Extract SPY returns for the testing period
 spy_returns = test_data['SPY_Simple_Return'].iloc[specific_idx : specific_idx + test_env.horizon].values
 
 # Calculate SPY cumulative returns
-spy_cumulative_values = (1 + np.cumsum(spy_returns))
+spy_cumulative_return = np.prod(1 + spy_returns) - 1
 
-# Print results for no cash equal-weight strategy
+# Calculate SPY Sharpe ratio
+spy_mean_return = np.mean(spy_returns) * 252
+spy_volatility = np.std(spy_returns) * np.sqrt(252)
+spy_sharpe_ratio = spy_mean_return / (spy_volatility + 1e-8)
+
+# Print results
 print(f"\nEqual Weight Strategy (No Cash):")
 print(f"equal_weights_no_cash: {equal_weights_no_cash}")
 print(f"Sharpe Ratio: {equal_weight_sharpe_ratio_no_cash:.4f}, Cumulative Return: {equal_weight_cumulative_return_no_cash:.4f}")
 
-# Print results
-print(f"Testing Date: {specific_date}")
+print(f"\nSPY Performance:")
+print(f"Sharpe Ratio: {spy_sharpe_ratio:.4f}, Cumulative Return: {spy_cumulative_return:.4f}")
+
+print(f"\nTesting Date: {specific_date}")
 print(f"Model Allocation: {model_allocation}")
 print(f"Equal Weight Allocation: {equal_weights}")
 print(f"\nPerformance Metrics:")
@@ -118,7 +117,7 @@ print(f"Equal Weight Strategy: Sharpe Ratio: {equal_weight_sharpe_ratio:.4f}, Cu
 model_cumulative_values = (1 + np.cumsum(model_portfolio_returns))
 equal_weight_cumulative_values = (1 + np.cumsum(equal_weight_portfolio_returns))
 equal_weight_cumulative_values_no_cash = (1 + np.cumsum(equal_weight_portfolio_returns_no_cash))
-
+spy_cumulative_values = (1 + np.cumsum(spy_returns))
 
 plt.figure(figsize=(12, 6))
 plt.plot(range(len(model_cumulative_values)), model_cumulative_values, label='Model Strategy')

@@ -6,8 +6,8 @@ from fredapi import Fred
 fred = Fred(api_key='dbc938743655482a0f341e0216a5c36e')
 
 # Fetch Federal Funds Effective Rate and Unemployment Rate from FRED
-interest_rate = fred.get_series('FEDFUNDS', start_date='1990-09-01', end_date='2024-09-01')
-unemployment_rate = fred.get_series('UNRATE', start_date='1990-09-01', end_date='2024-09-01')
+interest_rate = fred.get_series('FEDFUNDS', start="1996-09-01", end_date='2024-12-01')
+unemployment_rate = fred.get_series('UNRATE', start="1996-09-01", end_date='2024-12-01')
 
 # Convert FRED data to DataFrames
 interest_rate_df = interest_rate.to_frame(name='Interest_Rate')

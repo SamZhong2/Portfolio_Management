@@ -5,7 +5,7 @@ import pandas as pd
 
 
 class PortfolioEnv(gym.Env):
-    def __init__(self, data: pd.DataFrame):
+    def __init__(self, data: pd.DataFrame, window_size: int, horizon: int, max_steps: int):
         super(PortfolioEnv, self).__init__()
 
         self.data = data
@@ -15,7 +15,7 @@ class PortfolioEnv(gym.Env):
         self.num_assets = len(self.price_columns)
 
         # Initialize the window size for the past 30 days
-        self.window_size = int(252/4)
+        self.window_size = window_size
         
         # Action space is continuous with possible allocation from 0 to 1 for each asset and cash
         self.action_space = spaces.Box(low=-1, high=1, shape=(self.num_assets + 1,))
@@ -30,7 +30,7 @@ class PortfolioEnv(gym.Env):
         self.risk_free_rate = 0.01 / 252
 
         # Initialize the horizon for the episode
-        self.horizon = 252
+        self.horizon = horizon
         
         # Initialize the current step
         self.current_step = 0
@@ -38,11 +38,8 @@ class PortfolioEnv(gym.Env):
         # Initialize the daily returns for the entire horizon
         self.daily_returns = []
 
-        # # Initialize the portfolio value
-        # self.portfolio_value = 1000
-
         # Initialize the maximum number of steps
-        self.max_steps = 500
+        self.max_steps = max_steps
         
     # Gets the random day we are training for and the data for the past 30 days
     def _get_random_window(self):

@@ -4,7 +4,7 @@ import numpy as np
 
 data = pd.read_csv('preprocessed_stock_data.csv')
 
-env = PortfolioEnv(data)
+env = PortfolioEnv(data, window_size=63, horizon=252, max_steps=500)
 eps = 10
 
 for eps in range(eps):

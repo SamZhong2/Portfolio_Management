@@ -25,8 +25,8 @@ train_data = data.iloc[:train_size].reset_index(drop=True)
 test_data = data.iloc[train_size:].reset_index(drop=True)
 
 # Environments
-train_env = PortfolioEnv(train_data)
-validation_env = PortfolioEnv(test_data)
+train_env = PortfolioEnv(train_data, window_size=63, horizon=252, max_steps=500)
+validation_env = PortfolioEnv(test_data, window_size=63, horizon=252, max_steps=50)
 
 # Initialize model and logger
 model = PPO('MlpPolicy', train_env, verbose=1, tensorboard_log=logdir)
